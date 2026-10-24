@@ -1,0 +1,41 @@
+# ---- R / RStudio ----
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user
+
+# ---- Quarto ----
+/.quarto/
+*_files/
+/_site/
+
+# ---- Lo que produce el código al ejecutarse ----
+# El informe en HTML y el CSV limpio se vuelven a generar cada vez
+# que corres el laboratorio. Por eso no se guardan en el repositorio:
+# lo que se guarda es el código que los produce.
+# Excepción: el .html del laboratorio sí se entrega, por eso se rescata.
+salidas/
+*.html
+!README.html
+!lab_n1_estudiante.html
+
+# ---- Sistema ----
+.DS_Store
+Thumbs.db
+~$*.xlsx
+
+# =============================================================
+# NOTA SOBRE LOS DATOS DE ESTE LABORATORIO
+# =============================================================
+# Los datos de la Fundación Altiplano son SINTÉTICOS: los nombres,
+# correos y teléfonos no corresponden a ninguna persona real.
+# Por eso el archivo puede vivir en un repositorio público.
+#
+# Con datos reales de personas la regla es la contraria: no se
+# suben nunca a un repositorio. Bastaría con agregar estas líneas
+# aquí abajo y git dejaría de subirlos:
+#
+#   datos/
+#   *.xlsx
+#   *.csv

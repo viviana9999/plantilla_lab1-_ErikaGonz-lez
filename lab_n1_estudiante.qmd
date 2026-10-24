@@ -1,0 +1,484 @@
+---
+title: "Laboratorio 1 · Organización en estado **Inicial**"
+subtitle: "Escalera de Madurez de Datos — Fundación Altiplano"
+author: "Escribe aquí tu nombre"
+lang: es
+format:
+  html:
+    toc: true
+    number-sections: true
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+---
+
+## El escenario
+
+La **Fundación Altiplano** lleva su base de donantes en `contactos_2024_FINAL_v3.xlsx`.
+Lo mantiene Marcela, del área de Desarrollo, en su computador. Cuando alguien necesita
+un dato, le escribe a Marcela. Cuando comunicaciones quiere un tablero, alguien exporta
+el archivo a Power BI — y el tablero se rompe cada vez que el archivo cambia.
+
+No hay dueño del dato, no hay definiciones escritas, no hay reglas de captura. Esto es
+una organización en **nivel 1 (Inicial / ad hoc)**.
+
+> **El objeto de este laboratorio no es la limpieza del archivo.** La limpieza es el
+> medio. El fin es triple: **establecer qué tan confiable es el dato, determinar qué
+> tan lejos está de ser gobernable, y proponer el primer paso realista.** El diagnóstico
+> y el plan son el entregable; el archivo limpio es un subproducto.
+
+**Regla que no se negocia:** no modifiques el archivo de `datos/`. Toda corrección se
+hace en código.
+
+***
+
+## Cómo leer el código de este documento
+
+Si nunca han programado, estas cuatro convenciones bastan para seguir el laboratorio.
+No hay que memorizarlas: están aquí para consultarlas cuando algo no se entienda.
+
+**`<-` asigna un nombre a un resultado.** `fuente <- read_excel(RUTA)` se lee *«llama
+`fuente` al resultado de leer el archivo»*. A partir de ahí, escribir `fuente` devuelve
+esa tabla.
+
+**`|>` encadena operaciones.** Se lee como *«y luego»*. En
+`datos |> filter(...) |> count(...)`, el resultado de cada paso entra como primer
+argumento del siguiente. Equivale a `count(filter(datos, ...))`, pero se lee en el orden
+en que ocurre.
+
+**`function(x)` define una operación propia** para no repetirla. Lo que está dentro se
+ejecuta cada vez que se la invoca, sustituyendo `x` por lo que se le pase.
+
+**`#` marca un comentario.** Todo lo que sigue en esa línea es texto para quien lee, no
+instrucciones para R.
+
+> **Los bloques se ejecutan en orden, de arriba hacia abajo.** Cada uno depende de los
+> anteriores: si saltan uno, los siguientes fallarán porque les faltará un objeto.
+
+***
+
+## Preparación del entorno
+
+```{r setup}
+# Los paquetes son colecciones de funciones que R no trae de fábrica.
+# library() las carga en esta sesión. Si falta alguno, RStudio ofrece instalarlo.
+library(readxl)    # leer archivos de Excel (.xlsx)
+library(dplyr)     # manipular tablas: filtrar, agrupar, resumir
+library(tidyr)     # reorganizar tablas: de ancho a largo y viceversa
+library(stringr)   # trabajar con texto: buscar, reemplazar, limpiar
+library(readr)     # leer y escribir archivos de texto (.csv)
+library(ggplot2)   # gráficos
+library(knitr)     # kable(): imprime una tabla con formato legible en el informe
+
+# Guardamos la ruta del archivo en un nombre, en vez de repetirla cada vez.
+# Si el archivo cambiara de lugar, se corrige aquí una sola vez y no en todo el documento.
+RUTA <- "datos/nivel1/contactos_2024_FINAL_v3.xlsx"
+
+# Dos funciones propias que vamos a usar varias veces.
+
+# sin_tilde(): convierte "Teléfono" en "Telefono".
+#   stri_trans_general(x, "Latin-ASCII") traduce cualquier carácter latino a su
+#   equivalente sin acento, sin depender de la configuración regional del equipo
+#   —cosa que sí ocurre con iconv(), cuyo resultado cambia de un sistema a otro—.
+#   Viene en el paquete stringi, que se instala junto con stringr.
+#   Lo usamos para los NOMBRES DE COLUMNA, no para los datos: una columna llamada
+#   "Monto última donación" obliga a escribir tildes cada vez que se la invoca.
+sin_tilde <- function(x) stringi::stri_trans_general(x, "Latin-ASCII")
+
+# vacio(): responde TRUE cuando una celda no tiene información aprovechable.
+#   En R, un dato ausente es NA. Pero en una hoja de cálculo también cuenta como
+#   vacía una celda con "" o con solo espacios, y esas NO son NA.
+#   is.na(x) detecta el primer caso; trimws() quita los espacios de los extremos
+#   y compara con "" para detectar el segundo. El operador | significa "o".
+vacio <- function(x) is.na(x) | trimws(as.character(x)) == ""
+```
+
+***
+
+## Paso 1 · Abrir el archivo tal como llega
+
+El primer gesto del diagnóstico es **no corregir nada**: abrir el archivo exactamente
+como lo recibiría cualquier persona, y observar qué pasa.
+
+```{r}
+# read_excel() devuelve un "tibble": una tabla con filas y columnas,
+# equivalente a una hoja de cálculo pero dentro de R.
+fuente <- read_excel(RUTA)
+
+dim(fuente)              # cuántas filas y cuántas columnas tiene
+names(fuente)[1:5]       # los nombres de las primeras cinco columnas
+```
+
+**Pregunta 1.1.** Los encabezados no son encabezados. ¿Qué tiene este archivo encima de
+la tabla, y por qué constituye un problema para cualquier proceso automatizado?
+
+*Tu respuesta:*
+
+```{r}
+# TODO 1.2 — Vuelve a leer el archivo saltando las filas decorativas.
+#            Pista: el argumento se llama `skip`. ¿Cuántas filas hay que saltar?
+#
+#            skip = n  ignora las primeras n filas y toma la siguiente como encabezado.
+#            .name_repair = "minimal" evita que R invente nombres para las columnas
+#            sin título; preferimos verlas vacías y decidir nosotros qué hacer.
+borrador <- read_excel(RUTA, skip = 4, .name_repair = "minimal")
+
+dim(borrador)
+names(borrador)
+```
+
+```{r}
+# Normalización de los nombres de columna (resuelto).
+#
+# Por qué: "Monto última donación" obliga a escribir tildes y espacios cada vez que se
+# use. Un nombre como monto_ultima_donacion es equivalente y no se presta a errores.
+#
+# La función encadena cinco operaciones sobre cada nombre:
+limpiar_nombre <- function(x) {
+  x |>
+    sin_tilde() |>                          # "última"  -> "ultima"
+    tolower() |>                            # "Monto"   -> "monto"
+    trimws() |>                             # quita espacios al inicio y al final
+    str_replace_all("[^a-z0-9]+", "_") |>   # todo lo que no sea letra o dígito -> "_"
+    str_remove_all("^_+|_+$")               # quita los "_" sobrantes en los extremos
+}
+
+nombres <- limpiar_nombre(names(borrador))
+
+# La columna sin título queda con nombre vacío: le ponemos uno explícito.
+nombres[nombres == ""] <- "notas"
+
+names(borrador) <- nombres   # se reemplazan los nombres en la tabla
+names(borrador)
+```
+
+```{r}
+# TODO 1.3 — Debajo de los datos hay OTRA tabla pegada (un resumen por ciudad),
+#            además de filas en blanco. Quédate sólo con los registros válidos.
+#            Pista: todo contacto real tiene un id con el patrón CT-#####
+#
+#            filter() conserva las filas que cumplen una condición.
+#            str_detect(x, patron) responde TRUE si el texto encaja con el patrón.
+#            El patrón "^CT-\\d{5}" seguido del ancla de fin se lee así:
+#            ^ marca el inicio, CT- son esas tres letras literales, \\d{5} exige
+#            exactamente cinco dígitos, y el ancla final exige que ahí termine
+#            la cadena. Ni un carácter más.
+validos <- borrador |>
+  filter(!vacio(id), str_detect(id, "^CT-\\d{5}$"))
+
+# cat() imprime un mensaje; "\n" es el salto de línea.
+cat("Filas en la hoja:", nrow(borrador),
+    "| Registros válidos:", nrow(validos), "\n")
+```
+
+**Pregunta 1.4.** Acabas de establecer qué cuenta como «registro válido». ¿Corresponde
+que esa decisión la tome el analista, solo, en una línea de código? ¿A quién le
+corresponde?
+
+*Tu respuesta:*
+
+***
+
+## Paso 2 · Diagnóstico de calidad
+
+Medimos cuatro de las seis dimensiones vistas en clase. Las otras dos —**oportunidad**
+y **exactitud**— no pueden medirse con este archivo: exigen conocer cuándo se actualizó
+cada dato y contrastarlo contra una fuente externa.
+
+**No usamos ningún paquete que calcule esto automáticamente.** El propósito es ver la
+aritmética: una dimensión de calidad es, en el fondo, un conteo dividido por un total.
+
+### 2.1 Completitud
+
+> **Grado en que están presentes todos los valores que se esperan para describir una
+> entidad.** Se mide contando vacíos sobre el total.
+
+```{r}
+completitud <- validos |>
+  # across(everything(), ...) aplica la misma operación a TODAS las columnas.
+  # ~ round(100 * mean(!vacio(.x)), 1) se lee de adentro hacia afuera:
+  #   vacio(.x)  -> TRUE/FALSE por cada celda de la columna
+  #   !          -> invierte: TRUE cuando SÍ hay dato
+  #   mean()     -> promedio de TRUE/FALSE, que es la proporción de llenos (0 a 1)
+  #   100 *      -> lo convierte en porcentaje
+  #   round(, 1) -> lo redondea a un decimal
+  summarise(across(everything(), ~ round(100 * mean(!vacio(.x)), 1))) |>
+  # El resultado queda en una sola fila, con una columna por campo.
+  # pivot_longer() lo gira: una fila por campo, que se lee mucho mejor.
+  pivot_longer(everything(), names_to = "campo", values_to = "completitud_pct") |>
+  arrange(completitud_pct)   # ordena de menor a mayor: lo peor primero
+
+kable(completitud)   # imprime la tabla con formato en el informe
+```
+
+### 2.2 Validez
+
+> **Grado en que el valor pertenece al conjunto de valores admitidos para ese campo.**
+> Se mide contra el dominio declarado en el diccionario de datos.
+
+Nótese la dependencia: **sin diccionario no hay dominio, y sin dominio la validez no es
+medible.** Aquí vamos a proponer los dominios nosotros, que es precisamente lo que una
+organización en nivel 1 no tiene escrito en ninguna parte.
+
+```{r}
+# TODO 2.2 — Completa las reglas de validez que faltan.
+validez <- validos |>
+  # transmute() crea columnas nuevas y descarta las demás.
+  # Cada regla produce TRUE o FALSE por fila.
+  transmute(
+    # coalesce(correo, "") sustituye los NA por texto vacío, para que
+    # str_detect() no devuelva NA y pueda contarse como incumplimiento.
+    # El patrón exige: algo, una @, algo, un punto y al menos dos letras.
+    correo_valido = str_detect(coalesce(correo, ""),
+                               "^[^@[:space:]]+@[^@[:space:]]+\\.[a-z]{2,}$")
+
+    # TODO: telefono_valido  -> ¿tiene 10 dígitos una vez quitas todo lo que no sea número?
+    # TODO: genero_valido    -> ¿el valor está dentro de un dominio aceptable?
+    # TODO: monto_valido     -> ¿se puede convertir a número?
+  ) |>
+  summarise(across(everything(), ~ round(100 * mean(.x), 1))) |>
+  pivot_longer(everything(), names_to = "regla", values_to = "cumple_pct")
+
+kable(validez)
+```
+
+### 2.3 Unicidad
+
+> **Grado en que cada entidad del mundo real aparece una sola vez en el repositorio.**
+> Se mide buscando duplicados por una llave.
+
+```{r}
+# n_distinct() cuenta valores diferentes; duplicated() marca las repeticiones
+# posteriores a la primera aparición, y sum() las cuenta.
+cat("Registros:              ", nrow(validos), "\n")
+cat("Identificadores únicos: ", n_distinct(validos$id), "\n")   # el signo toma una columna
+cat("IDs repetidos:          ", sum(duplicated(validos$id)), "\n")
+cat("Filas idénticas:        ", sum(duplicated(validos)), "\n")
+```
+
+```{r}
+# TODO 2.3 — Muestra dos registros que compartan ID pero tengan datos distintos.
+#
+# count(id) cuenta cuántas veces aparece cada id;
+# filter(n > 1) deja los repetidos; pull(id) extrae esa columna como vector.
+ids_rep <- validos |> count(id) |> filter(n > 1) |> pull(id)
+
+# %in% pregunta si cada valor está dentro de un conjunto.
+# head(ids_rep, 2) toma los dos primeros; select() elige qué columnas mostrar.
+validos |>
+  filter(id %in% head(ids_rep, 2)) |>
+  select(id, nombre_completo, telefono, ciudad) |>
+  kable()
+```
+
+**Pregunta 2.3.** Hay dos problemas distintos aquí: filas idénticas y registros que
+comparten ID pero difieren entre sí. ¿Se resuelven de la misma manera? ¿Cuál de los dos
+**no** puede resolverse con código, y por qué?
+
+*Tu respuesta:*
+
+### 2.4 Consistencia
+
+> **Grado en que el dato no se contradice con otros datos relacionados.** Se mide
+> comparando entre sistemas o entre tablas.
+
+En este archivo no hay un segundo sistema contra el cual comparar, así que medimos su
+forma interna: **un mismo valor del mundo real escrito de varias maneras distintas.**
+
+```{r}
+# TODO 2.4 — ¿De cuántas formas distintas está escrita la ciudad? ¿Y el género?
+#
+# count() agrupa por el valor de la columna y cuenta cuántas filas hay en cada grupo.
+# sort = TRUE las ordena de mayor a menor frecuencia.
+validos |> count(ciudad, sort = TRUE) |> head(10) |> kable()
+```
+
+**Pregunta 2.4.** El tablero de la Fundación reporta *Bogotá* varias veces como si
+fueran ciudades distintas. ¿De quién es el problema: del analista de BI, de quien captura
+el dato, o de la organización?
+
+*Tu respuesta:*
+
+***
+## Paso 3 · Limpieza reproducible
+
+Hasta aquí solo observamos. Ahora corregimos — **en código, nunca sobre el archivo**.
+Cada línea de este bloque es una decisión documentada: alguien que lo lea dentro de un
+año sabrá exactamente qué se cambió y podrá repetirlo.
+
+```{r}
+# TODO 3.1 — Completa la limpieza. Te dejamos resuelto el caso de la fecha,
+#            que es el más difícil. Los demás son tuyos.
+
+# Un vector con nombre: a cada abreviatura de mes le corresponde su número.
+# meses_es["ago"] devuelve 8. Lo necesitamos porque R no entiende "ago" en español.
+meses_es <- c(ene = 1, feb = 2, mar = 3, abr = 4, may = 5, jun = 6,
+              jul = 7, ago = 8, sep = 9, oct = 10, nov = 11, dic = 12)
+
+# parsear_fecha(): recibe un vector de textos con TRES formatos mezclados
+# y devuelve fechas reales. La estrategia es tratar cada formato por separado.
+parsear_fecha <- function(x) {
+  x <- trimws(coalesce(x, ""))          # sin espacios sobrantes y sin NA
+  salida <- as.Date(rep(NA, length(x))) # vector de fechas vacío, del mismo largo
+
+  # Caso 1 — "08/12/2024": día/mes/año
+  i <- str_detect(x, "^\\d{2}/\\d{2}/\\d{4}$")
+  salida[i] <- as.Date(x[i], format = "%d/%m/%Y")
+
+  # Caso 2 — "2024-11-09": año-mes-día (norma ISO 8601)
+  i <- str_detect(x, "^\\d{4}-\\d{2}-\\d{2}$")
+  salida[i] <- as.Date(x[i], format = "%Y-%m-%d")
+
+  # Caso 3 — "23-ago-24": día-mes abreviado en español-año de dos dígitos
+  i <- str_detect(x, "^\\d{2}-[a-z]{3}-\\d{2}$")
+  if (any(i)) {
+    # str_split_fixed() parte cada texto en tres pedazos por el guion
+    p <- str_split_fixed(x[i], "-", 3)
+    # sprintf() arma "20AA-MM-DD" con los pedazos, y as.Date() lo interpreta
+    salida[i] <- as.Date(sprintf("20%s-%02d-%s", p[, 3], meses_es[p[, 2]], p[, 1]))
+  }
+
+  salida   # lo que la función devuelve
+}
+
+final <- validos |>
+  transmute(
+    contacto_id     = trimws(id),
+    nombre_completo = str_squish(nombre_completo),   # colapsa espacios múltiples en uno
+    fecha_ingreso   = parsear_fecha(fecha_de_ingreso)
+
+    # TODO: correo   -> minúsculas, y NA si no tiene formato válido
+    # TODO: telefono -> sólo dígitos, quita el prefijo 57, NA si no quedan 10
+    # TODO: ciudad   -> unifica las variantes en un solo valor por ciudad
+    # TODO: genero   -> unifica a F / M / NA
+    # TODO: monto_ultima_donacion -> numérico
+  )
+
+cat("Registros tras limpieza:", nrow(final), "\n")
+```
+
+**Pregunta 3.2.** ¿Eliminaste los registros con ID repetido o los marcaste para revisión?
+Defiende tu decisión ante una directora que pide «una base limpia para el viernes».
+
+*Tu respuesta:*
+
+```{r}
+# TODO 3.3 — Construye una tabla ANTES vs DESPUÉS de al menos cuatro indicadores.
+#            Sugerencia: % de correos válidos, formas distintas de escribir la ciudad,
+#            % de montos numéricos, formatos de fecha distintos.
+```
+
+**Pregunta 3.4.** Revisa el porcentaje de correos válidos antes y después. ¿Subió? ¿Qué
+indica eso sobre lo que la limpieza **puede** y **no puede** corregir?
+
+*Tu respuesta:*
+
+***
+
+## Paso 4 · Diccionario de datos
+
+Este será el primer artefacto de gobierno que la Fundación tenga. Parte se genera con
+código; parte sólo la puede completar el negocio.
+
+```{r}
+# TODO 4.1 — Genera el diccionario: campo, tipo, completitud, valores únicos, ejemplo.
+#            Añade a mano: descripcion, dominio_permitido y responsable.
+#
+#            Útiles: names() para los campos, sapply(final, class) para los tipos,
+#            n_distinct() para los valores únicos.
+```
+
+**Pregunta 4.2.** ¿Qué columna de tu diccionario **no puedes completar tú solo**? ¿Qué
+revela eso sobre el estado de gobierno de esta organización?
+
+*Tu respuesta:*
+
+***
+
+## Paso 5 · Plan de gobierno mínimo viable
+
+La tentación aquí es proponer un programa completo: comité de datos, política
+corporativa, catálogo, herramienta. **Una organización en nivel 1 no puede absorber
+eso.** El objetivo no es llegar al nivel 5: es llegar al **nivel 2**.
+
+```{r}
+# TODO 5.1 — Construye tu plan: entre 4 y 6 acciones, cada una con
+#            prioridad, por_que_ahora, responsable_propuesto y plazo.
+#            Al menos una debe atacar la causa EN EL ORIGEN, no el síntoma.
+#
+#            Sugerencia: arma un tibble() con esas columnas y muéstralo con kable().
+```
+
+**Pregunta 5.2.** Si sólo pudieras ejecutar **una** de tus acciones, ¿cuál eliges y por qué?
+
+*Tu respuesta:*
+
+**Pregunta 5.3.** Nombra una acción que deliberadamente **dejaste fuera** por no
+corresponder al nivel de madurez de esta organización, y explica por qué.
+
+*Tu respuesta:*
+
+***
+
+## Paso 6 · Entregar el dato limpio
+
+El diagnóstico y el plan son para la organización. **El archivo limpio es para quien va
+a construir el tablero** — que en este caso eres tú mismo.
+
+```{r}
+# dir.create() crea la carpeta de salida.
+# showWarnings = FALSE evita el aviso si la carpeta ya existe.
+dir.create("salidas", showWarnings = FALSE)
+
+# write_csv() escribe la tabla como archivo de texto separado por comas,
+# que es el formato que cualquier herramienta puede leer.
+# na = "" deja las celdas sin dato en blanco, en vez de escribir la palabra NA.
+write_csv(final, "salidas/contactos_limpio.csv", na = "")
+
+cat("Escrito:", nrow(final), "registros ·",
+    ncol(final), "columnas  ->  salidas/contactos_limpio.csv\n")
+```
+
+**Para descargarlo:** en el panel *Files* de Posit Cloud entra a `salidas/`, marca la
+casilla del archivo y usa **More → Export…**
+
+> **Obsérvese lo que acaba de ocurrir.** El archivo original permanece intacto en
+> `datos/`, sin una sola modificación. Todo lo que cambió está escrito en código, en este
+> documento, y cualquier persona puede volver a ejecutarlo y obtener exactamente el mismo
+> resultado.
+>
+> **Esa es la diferencia entre corregir un archivo y gobernar un dato.**
+
+### 6.1 · Súbelo a Tableau y compáralo
+
+Con el `.csv` descargado, en Tableau: **New → Workbook → Files → Upload from computer**.
+Arrastra **`ciudad`** a Filas, igual que hiciste con el archivo sin limpiar.
+
+| | Archivo crudo | Tu archivo limpio |
+|---|---|---|
+| Valores distintos de ciudad | | |
+| Registros sin ciudad | | |
+| Formatos de fecha | | |
+
+**Pregunta 6.2.** Con el archivo crudo, Tableau mostraba 14 ciudades mientras el archivo
+contenía 27 grafías distintas, para 10 ciudades reales. ¿Cuántas muestra ahora, y a qué
+se debe el cambio?
+
+*Tu respuesta:*
+
+**Pregunta 6.3.** Ese `.csv` lo descargaste y lo subiste manualmente. Si mañana llega
+`contactos_2025.xlsx`, ¿qué parte de este trabajo se repite sola y qué parte hay que
+rehacer a mano? **Esa parte manual es donde se interrumpe el linaje.**
+
+*Tu respuesta:*
+
+***
+
+## Entrega
+
+Haz `commit` y `push` de este `.qmd` y del `.html` renderizado. Verifica que el documento
+renderice completo antes de entregar.
+
+**El `.csv` de `salidas/` no se versiona** — está en el `.gitignore`, porque se regenera
+ejecutando el código. Ese archivo se descarga para Tableau; no se sube al repositorio.
